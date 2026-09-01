@@ -103,8 +103,8 @@ namespace GeniusLyricsPlugin.Services
             var htmlDoc = new HtmlDocument();
             htmlDoc.LoadHtml(html);
 
-            // Genius lyrics are typically inside divs with class starting with "Lyrics__Container" or "lyrics"
-            var lyricsNodes = htmlDoc.DocumentNode.SelectNodes("//div[contains(@class, 'Lyrics__Container')]");
+            // Genius lyrics are typically inside divs with data-lyrics-container="true"
+            var lyricsNodes = htmlDoc.DocumentNode.SelectNodes("//div[@data-lyrics-container='true']");
             if (lyricsNodes == null || lyricsNodes.Count == 0)
             {
                 // Fallback for older layout
