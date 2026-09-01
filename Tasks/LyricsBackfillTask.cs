@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using GeniusLyricsPlugin.Services;
 using Jellyfin.Data.Enums;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
@@ -22,17 +24,20 @@ namespace GeniusLyricsPlugin.Tasks
         private readonly IProviderManager _providerManager;
         private readonly ScraperService _scraperService;
         private readonly IDirectoryService _directoryService;
+        private readonly IApplicationPaths _applicationPaths;
 
         public LyricsBackfillTask(
             ILogger<LyricsBackfillTask> logger,
             ILibraryManager libraryManager,
             IProviderManager providerManager,
-            IDirectoryService directoryService)
+            IDirectoryService directoryService,
+            IApplicationPaths applicationPaths)
         {
             _logger = logger;
             _libraryManager = libraryManager;
             _providerManager = providerManager;
             _directoryService = directoryService;
+            _applicationPaths = applicationPaths;
             _scraperService = new ScraperService(new LoggerFactory().CreateLogger<ScraperService>());
         }
 
@@ -60,6 +65,25 @@ namespace GeniusLyricsPlugin.Tasks
 
             _logger.LogInformation("Starting Genius Lyrics Backfill task...");
 
+            var cachePath = Path.Combine(_applicationPaths.PluginConfigurationsPath, "GeniusLyricsBackoffCache.json");
+            Dictionary<Guid, DateTime> backoffCache = new Dictionary<Guid, DateTime>();
+
+            if (File.Exists(cachePath))
+            {
+                try
+                {
+                    var cacheJson = await File.ReadAllTextAsync(cachePath, cancellationToken);
+                    backoffCache = JsonSerializer.Deserialize<Dictionary<Guid, DateTime>>(cacheJson) ?? new Dictionary<Guid, DateTime>();
+                    _logger.LogInformation($"Loaded {backoffCache.Count} items from backoff cache.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to load backoff cache.");
+                }
+            }
+
+            var cutoffDate = DateTime.UtcNow.AddDays(-30);
+
             var query = new InternalItemsQuery
             {
                 IncludeItemTypes = new[] { BaseItemKind.Audio },
@@ -69,8 +93,9 @@ namespace GeniusLyricsPlugin.Tasks
             var items = _libraryManager.GetItemList(query)
                 .OfType<Audio>()
                 .Where(a => a.HasLyrics != true)
+                .Where(a => !backoffCache.TryGetValue(a.Id, out var lastChecked) || lastChecked < cutoffDate)
                 .ToList();
-            _logger.LogInformation($"Found {items.Count} audio items missing lyrics.");
+            _logger.LogInformation($"Found {items.Count} audio items missing lyrics to check (after backoff filtering).");
 
             if (items.Count == 0)
             {
@@ -90,6 +115,7 @@ namespace GeniusLyricsPlugin.Tasks
                     var title = item.Name;
                     var artist = item.Artists.FirstOrDefault() ?? item.AlbumArtists.FirstOrDefault();
 
+                    bool lyricsFound = false;
                     if (!string.IsNullOrWhiteSpace(title) && !string.IsNullOrWhiteSpace(artist))
                     {
                         var url = await _scraperService.SearchSongUrlAsync(artist, title, config.GeniusApiKey, cancellationToken);
@@ -98,6 +124,7 @@ namespace GeniusLyricsPlugin.Tasks
                             var lyrics = await _scraperService.ScrapeLyricsAsync(url, cancellationToken);
                             if (!string.IsNullOrWhiteSpace(lyrics))
                             {
+                                lyricsFound = true;
                                 if (config.SaveLyricsInMediaFolder && !string.IsNullOrWhiteSpace(item.Path))
                                 {
                                     var txtPath = Path.ChangeExtension(item.Path, ".txt");
@@ -120,6 +147,18 @@ namespace GeniusLyricsPlugin.Tasks
                             }
                         }
                     }
+                    
+                    if (lyricsFound)
+                    {
+                        if (backoffCache.ContainsKey(item.Id))
+                        {
+                            backoffCache.Remove(item.Id);
+                        }
+                    }
+                    else
+                    {
+                        backoffCache[item.Id] = DateTime.UtcNow;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -132,6 +171,17 @@ namespace GeniusLyricsPlugin.Tasks
                 
                 // Add a small delay to avoid rate limiting from Genius
                 await Task.Delay(1000, cancellationToken);
+            }
+
+            try
+            {
+                var cacheJson = JsonSerializer.Serialize(backoffCache);
+                await File.WriteAllTextAsync(cachePath, cacheJson, cancellationToken);
+                _logger.LogInformation("Saved backoff cache.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save backoff cache.");
             }
 
             _logger.LogInformation($"Genius Lyrics Backfill task completed. Successfully downloaded and saved {successCount} lyrics.");
