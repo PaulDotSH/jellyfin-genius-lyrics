@@ -81,7 +81,46 @@ namespace GeniusLyricsPlugin.Services
                                 {
                                     if (result.TryGetProperty("url", out var songUrl))
                                     {
-                                        return songUrl.GetString();
+                                        var hitArtist = string.Empty;
+                                        if (result.TryGetProperty("primary_artist", out var primaryArtist) && primaryArtist.TryGetProperty("name", out var primaryArtistName))
+                                        {
+                                            hitArtist = primaryArtistName.GetString();
+                                        }
+                                        
+                                        var hitArtistNames = result.TryGetProperty("artist_names", out var an) ? an.GetString() : hitArtist;
+                                        
+                                        bool isArtistMatch = false;
+                                        if (!string.IsNullOrWhiteSpace(hitArtistNames) && !string.IsNullOrWhiteSpace(artist))
+                                        {
+                                            var requestedArtistLower = artist.ToLowerInvariant();
+                                            var hitArtistLower = hitArtistNames.ToLowerInvariant();
+                                            
+                                            if (hitArtistLower.Contains(requestedArtistLower) || requestedArtistLower.Contains(hitArtistLower))
+                                            {
+                                                isArtistMatch = true;
+                                            }
+                                            else
+                                            {
+                                                var artistWords = requestedArtistLower.Split(new[] { ' ', '-', ',', '&' }, StringSplitOptions.RemoveEmptyEntries);
+                                                foreach (var word in artistWords)
+                                                {
+                                                    if (word.Length > 2 && hitArtistLower.Contains(word))
+                                                    {
+                                                        isArtistMatch = true;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if (isArtistMatch)
+                                        {
+                                            return songUrl.GetString();
+                                        }
+                                        else
+                                        {
+                                            _logger.LogInformation($"Skipped '{songUrl.GetString()}' because artist '{hitArtistNames}' did not match '{artist}'");
+                                        }
                                     }
                                 }
                             }
@@ -136,6 +175,9 @@ namespace GeniusLyricsPlugin.Services
             var htmlDoc = new HtmlDocument();
             htmlDoc.LoadHtml(text);
             text = HttpUtility.HtmlDecode(htmlDoc.DocumentNode.InnerText);
+            
+            // Remove Genius header metadata like "3 ContributorsSong Title Lyrics"
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"^.*?Lyrics\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             
             return text.Trim();
         }
