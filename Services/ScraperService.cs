@@ -1,0 +1,143 @@
+using System;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
+using HtmlAgilityPack;
+using System.Web;
+using Microsoft.Extensions.Logging;
+
+namespace GeniusLyricsPlugin.Services
+{
+    public class ScraperService
+    {
+        private readonly HttpClient _httpClient;
+        private readonly ILogger<ScraperService> _logger;
+
+        public ScraperService(ILogger<ScraperService> logger)
+        {
+            _logger = logger;
+            _httpClient = new HttpClient();
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36");
+            _httpClient.DefaultRequestHeaders.Add("Accept", "application/json, text/plain, */*");
+        }
+
+        public async Task<string> SearchSongUrlAsync(string artist, string title, string apiKey, CancellationToken cancellationToken)
+        {
+            var query = HttpUtility.UrlEncode($"{artist} {title}");
+            var url = $"https://genius.com/api/search/multi?q={query}";
+            
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                request.Headers.Add("Authorization", $"Bearer {apiKey}");
+            }
+
+            int attempts = 0;
+            HttpResponseMessage response = null;
+            
+            while (attempts < 3)
+            {
+                attempts++;
+                response = await _httpClient.SendAsync(request, cancellationToken);
+                
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    _logger.LogWarning($"Rate limited searching for '{title}' by '{artist}', backing off for {attempts * 10}s...");
+                    await Task.Delay(TimeSpan.FromSeconds(attempts * 10), cancellationToken);
+                    
+                    // Re-create request because it cannot be sent twice
+                    request = new HttpRequestMessage(HttpMethod.Get, url);
+                    if (!string.IsNullOrWhiteSpace(apiKey))
+                    {
+                        request.Headers.Add("Authorization", $"Bearer {apiKey}");
+                    }
+                    continue;
+                }
+                break;
+            }
+
+            if (response == null || !response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(content);
+            
+            var root = doc.RootElement;
+            if (root.TryGetProperty("response", out var responseNode) && responseNode.TryGetProperty("sections", out var sections))
+            {
+                foreach (var section in sections.EnumerateArray())
+                {
+                    if (section.TryGetProperty("hits", out var hits))
+                    {
+                        foreach (var hit in hits.EnumerateArray())
+                        {
+                            if (hit.TryGetProperty("result", out var result))
+                            {
+                                if (result.TryGetProperty("_type", out var typeNode) && typeNode.GetString() == "song")
+                                {
+                                    if (result.TryGetProperty("url", out var songUrl))
+                                    {
+                                        return songUrl.GetString();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        public async Task<string> ScrapeLyricsAsync(string url, CancellationToken cancellationToken)
+        {
+            var response = await _httpClient.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var html = await response.Content.ReadAsStringAsync();
+            var htmlDoc = new HtmlDocument();
+            htmlDoc.LoadHtml(html);
+
+            // Genius lyrics are typically inside divs with class starting with "Lyrics__Container" or "lyrics"
+            var lyricsNodes = htmlDoc.DocumentNode.SelectNodes("//div[contains(@class, 'Lyrics__Container')]");
+            if (lyricsNodes == null || lyricsNodes.Count == 0)
+            {
+                // Fallback for older layout
+                var oldLyricsNode = htmlDoc.DocumentNode.SelectSingleNode("//div[@class='lyrics']");
+                if (oldLyricsNode != null)
+                {
+                    return CleanHtmlToText(oldLyricsNode.InnerHtml);
+                }
+                return null;
+            }
+
+            var fullLyrics = string.Empty;
+            foreach (var node in lyricsNodes)
+            {
+                fullLyrics += CleanHtmlToText(node.InnerHtml) + "\n";
+            }
+
+            return fullLyrics.Trim();
+        }
+
+        private string CleanHtmlToText(string html)
+        {
+            if (string.IsNullOrWhiteSpace(html)) return string.Empty;
+            
+            // Replace <br> with newlines
+            var text = html.Replace("<br>", "\n").Replace("<br/>", "\n").Replace("<br />", "\n");
+            
+            // Strip other HTML tags
+            var htmlDoc = new HtmlDocument();
+            htmlDoc.LoadHtml(text);
+            text = HttpUtility.HtmlDecode(htmlDoc.DocumentNode.InnerText);
+            
+            return text.Trim();
+        }
+    }
+}
