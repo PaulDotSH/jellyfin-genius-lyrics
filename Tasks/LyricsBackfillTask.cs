@@ -146,6 +146,9 @@ namespace GeniusLyricsPlugin.Tasks
                                 }
                             }
                         }
+
+                        // Add a delay to avoid triggering rate limits / Cloudflare blocks
+                        await Task.Delay(2000, cancellationToken);
                     }
                     
                     if (lyricsFound)
