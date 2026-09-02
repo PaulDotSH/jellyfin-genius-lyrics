@@ -25,7 +25,8 @@ namespace GeniusLyricsPlugin.Services
 
         public async Task<string> SearchSongUrlAsync(string artist, string title, string apiKey, CancellationToken cancellationToken)
         {
-            var query = HttpUtility.UrlEncode($"{artist} {title}");
+            var cleanArtist = artist.Replace(" x ", " ").Replace(" & ", " ").Replace(" feat. ", " ").Replace(" ft. ", " ").Replace(" + ", " ");
+            var query = HttpUtility.UrlEncode($"{cleanArtist} {title}");
             var url = $"https://genius.com/api/search/multi?q={query}";
             
             var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -67,7 +68,7 @@ namespace GeniusLyricsPlugin.Services
             using var doc = JsonDocument.Parse(content);
             
             var root = doc.RootElement;
-            if (root.TryGetProperty("response", out var responseNode) && responseNode.TryGetProperty("sections", out var sections))
+            if (root.TryGetProperty("response", out var responseObj) && responseObj.TryGetProperty("sections", out var sections))
             {
                 foreach (var section in sections.EnumerateArray())
                 {
@@ -81,11 +82,9 @@ namespace GeniusLyricsPlugin.Services
                                 {
                                     if (result.TryGetProperty("url", out var songUrl))
                                     {
-                                        var hitArtist = string.Empty;
-                                        if (result.TryGetProperty("primary_artist", out var primaryArtist) && primaryArtist.TryGetProperty("name", out var primaryArtistName))
-                                        {
-                                            hitArtist = primaryArtistName.GetString();
-                                        }
+                                        var hitArtist = result.TryGetProperty("primary_artist", out var primaryArtist) && primaryArtist.TryGetProperty("name", out var primaryArtistName) 
+                                            ? primaryArtistName.GetString() 
+                                            : string.Empty;
                                         
                                         var hitArtistNames = result.TryGetProperty("artist_names", out var an) ? an.GetString() : hitArtist;
                                         
