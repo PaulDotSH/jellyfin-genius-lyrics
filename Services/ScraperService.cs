@@ -134,8 +134,25 @@ namespace GeniusLyricsPlugin.Services
 
         public async Task<string> ScrapeLyricsAsync(string url, CancellationToken cancellationToken)
         {
-            var response = await _httpClient.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
+            int attempts = 0;
+            HttpResponseMessage response = null;
+
+            while (attempts < 3)
+            {
+                attempts++;
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                response = await _httpClient.SendAsync(request, cancellationToken);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    _logger.LogWarning($"Rate limited scraping lyrics from {url}, backing off for {attempts * 10}s...");
+                    await Task.Delay(TimeSpan.FromSeconds(attempts * 10), cancellationToken);
+                    continue;
+                }
+                break;
+            }
+
+            if (response == null || !response.IsSuccessStatusCode)
                 return null;
 
             var html = await response.Content.ReadAsStringAsync();
