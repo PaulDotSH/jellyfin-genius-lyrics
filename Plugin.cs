@@ -20,11 +20,21 @@ namespace GeniusLyricsPlugin
             Instance = this;
         }
 
-        public static Plugin Instance { get; private set; }
+        public static Plugin? Instance { get; private set; }
+
+        // Falls back to defaults when the plugin isn't loaded (unit tests, local harnesses).
+        public static PluginConfiguration CurrentConfiguration => Instance?.Configuration ?? new PluginConfiguration();
 
         public IEnumerable<PluginPageInfo> GetPages()
         {
-            return Array.Empty<PluginPageInfo>();
+            return new[]
+            {
+                new PluginPageInfo
+                {
+                    Name = this.Name,
+                    EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
+                }
+            };
         }
     }
 }

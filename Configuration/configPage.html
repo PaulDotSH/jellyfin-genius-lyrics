@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Genius Lyrics</title>
+</head>
+<body>
+    <div id="GeniusLyricsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="GeniusLyricsConfigForm">
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableGenius" type="checkbox" is="emby-checkbox" />
+                            <span>Enable Genius</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">Search Genius when Jellyfin looks for lyrics, and in the backfill task.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="password" id="GeniusApiKey" label="Genius API access token (optional)" autocomplete="off" />
+                        <div class="fieldDescription">With a token, searches go through api.genius.com, which is less likely to be blocked by Cloudflare. Create one at genius.com/api-clients.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableFallback" type="checkbox" is="emby-checkbox" />
+                            <span>Fall back to LRCLIB in the backfill task</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">When Genius has nothing, try lrclib.net, which also provides synced (.lrc) lyrics.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="SaveLyricsInMediaFolder" type="checkbox" is="emby-checkbox" />
+                            <span>Save backfilled lyrics next to the media file</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">When off, or when the media folder is read-only, Jellyfin stores the lyrics according to the library's own lyric settings.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="RemoveSectionHeaders" type="checkbox" is="emby-checkbox" />
+                            <span>Remove section headers</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription">Strip lines like [Chorus] and [Verse 1] from Genius lyrics.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" id="BackoffDays" min="1" label="Days before retrying a song that had no lyrics" />
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" id="RequestDelayMs" min="0" label="Minimum delay between Genius requests (ms)" />
+                        <div class="fieldDescription">Applies to every request the plugin makes, from any task. Raise it if the logs show rate limiting (HTTP 429).</div>
+                    </div>
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <script type="text/javascript">
+            var GeniusLyricsConfig = {
+                pluginId: 'f940b2b8-933e-4363-b8c8-1eeb5584852c',
+                checkboxes: ['EnableGenius', 'EnableFallback', 'SaveLyricsInMediaFolder', 'RemoveSectionHeaders'],
+                numbers: ['BackoffDays', 'RequestDelayMs']
+            };
+
+            document.querySelector('#GeniusLyricsConfigPage').addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(GeniusLyricsConfig.pluginId).then(function (config) {
+                    document.querySelector('#GeniusApiKey').value = config.GeniusApiKey || '';
+                    GeniusLyricsConfig.checkboxes.forEach(function (id) {
+                        document.querySelector('#' + id).checked = !!config[id];
+                    });
+                    GeniusLyricsConfig.numbers.forEach(function (id) {
+                        document.querySelector('#' + id).value = config[id];
+                    });
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            document.querySelector('#GeniusLyricsConfigForm').addEventListener('submit', function (e) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(GeniusLyricsConfig.pluginId).then(function (config) {
+                    config.GeniusApiKey = document.querySelector('#GeniusApiKey').value.trim();
+                    GeniusLyricsConfig.checkboxes.forEach(function (id) {
+                        config[id] = document.querySelector('#' + id).checked;
+                    });
+                    GeniusLyricsConfig.numbers.forEach(function (id) {
+                        var value = parseInt(document.querySelector('#' + id).value, 10);
+                        if (!isNaN(value)) {
+                            config[id] = value;
+                        }
+                    });
+                    ApiClient.updatePluginConfiguration(GeniusLyricsConfig.pluginId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    });
+                });
+                e.preventDefault();
+                return false;
+            });
+        </script>
+    </div>
+</body>
+</html>
