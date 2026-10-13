@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using HtmlAgilityPack;
 using System.Web;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GeniusLyricsPlugin.Services
 {
@@ -17,7 +18,7 @@ namespace GeniusLyricsPlugin.Services
 
         public ScraperService(ILogger<ScraperService> logger)
         {
-            _logger = logger;
+            _logger = logger ?? NullLogger<ScraperService>.Instance;
             var handler = new HttpClientHandler
             {
                 AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate

@@ -24,14 +24,7 @@ namespace GeniusLyricsPlugin
 
         public IEnumerable<PluginPageInfo> GetPages()
         {
-            return new[]
-            {
-                new PluginPageInfo
-                {
-                    Name = this.Name,
-                    EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
-                }
-            };
+            return Array.Empty<PluginPageInfo>();
         }
     }
 }

@@ -17,10 +17,10 @@ namespace GeniusLyricsPlugin.Providers
         private readonly ILogger<GeniusLyricsProvider> _logger;
         private readonly ScraperService _scraperService;
 
-        public GeniusLyricsProvider(ILogger<GeniusLyricsProvider> logger)
+        public GeniusLyricsProvider(ILogger<GeniusLyricsProvider> logger, ILoggerFactory loggerFactory)
         {
             _logger = logger;
-            _scraperService = new ScraperService(logger as ILogger<ScraperService>);
+            _scraperService = new ScraperService(loggerFactory.CreateLogger<ScraperService>());
         }
 
         public string Name => "Genius Lyrics Provider";
@@ -44,14 +44,29 @@ namespace GeniusLyricsPlugin.Providers
                 return Array.Empty<RemoteLyricInfo>();
             }
 
+            var lyricsText = await _scraperService.ScrapeLyricsAsync(url, cancellationToken);
+            if (string.IsNullOrWhiteSpace(lyricsText))
+            {
+                return Array.Empty<RemoteLyricInfo>();
+            }
+
+            var stream = new MemoryStream(Encoding.UTF8.GetBytes(lyricsText));
             return new[]
             {
                 new RemoteLyricInfo
                 {
                     Id = url,
                     ProviderName = Name,
-                    Metadata = default!,
-                    Lyrics = default!
+                    Metadata = new LyricMetadata
+                    {
+                        Artist = artist,
+                        Title = title
+                    },
+                    Lyrics = new LyricResponse
+                    {
+                        Stream = stream,
+                        Format = "txt"
+                    }
                 }
             };
         }
